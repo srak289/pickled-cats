@@ -46,22 +46,69 @@ def pickled_cats(n: int) -> bytes:
     return pickle.dumps(gen_cats(n))
 
 
+class ProtoFlags(enum.Flag):
+    MSG = 1023 # to be &'d with the msg
+    CHUNK = 1024
+    STOP = 2048
+    HELLO = 4096 # if set password is expected
+    # 8192
+    # 16384
+    # 32768
+    # 65536
+    # 131072
+    # 262144
+    # 524288
+    # 1048576
+    # 2097152
+    # 4194304
+    # 8388608
+    # 16777216
+    # 33554432
+    # 67108864
+    # 134217728
+    # 268435456
+    # 536870912
+    # 1073741824
+    # 2147483648
+
+# 32       24       16       8
+# /********|********|********|********\
+# |                 |   HSCxxxxxxxxxxx|
+# \________|________|________|________/
+#
+# bits 1-10 for msg len
+#
+# 22 flags left for control
+
+
 def server():
     server = socket(AF_UNIX, SOCK_STREAM | SOCK_SEQPACKET)
     server.bind(r"./testunix")
 
     @atexit.register
     def _remove_socket():
-        os.unlink(f"./testunix")
+        try:
+            os.unlink(f"./testunix")
+        except FileNotFoundError:
+            pass
 
     server.listen()
 
     def handle_client(conn):
-        r = conn.recv(8)
-        if r != b"<HELLO>\n":
-            conn.send(b"<GO AWAY>\n")
-            conn.close()
-            return
+        r = conn.recv(1024)
+        fbuf = int.from_bytes(r[:4])
+        mbuf = r[4:]
+        if fbuf & ProtoFlags.HELLO.value:
+            msglen = fbuf & ProtoFlags.MSG.value
+            password = pickle.loads(mbuf[:msglen])
+            if password != "foo":
+                conn.send(b"<GO AWAY>\n")
+                conn.close()
+                return
+            else:
+                # client accepted
+                pass
+
         j = 10000
         pc = pickled_cats(j)
         try:
